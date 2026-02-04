@@ -1,0 +1,115 @@
+<webview id="baseWeb" src="https://workflow.base.vn/qttrienkhaiduandandung-12551" partition="persist:base"
+    style="width:100%; height:100%">
+</webview>
+
+<script>
+    window.addEventListener('DOMContentLoaded', async () => {
+        const webview = document.getElementById('baseWeb')
+
+        // Diagnostic: kiểm tra xem preload/exposeInMainWorld có hoạt động không
+        console.log('renderer: window.electronAPI =', window.electronAPI)
+
+        if (!window.electronAPI || typeof window.electronAPI.loadTechs !== 'function') {
+            console.error('⚠️ electronAPI.loadTechs không khả dụng — đảm bảo bạn đang chạy trong Electron và preload.js được tải (kiểm tra main window, không phải webview).')
+            return
+        }
+
+        // An toàn: gọi async và bắt lỗi
+        let techs = []
+        try {
+            techs = await window.electronAPI.loadTechs() || []
+        } catch (err) {
+            console.error('Lỗi khi gọi loadTechs():', err)
+            techs = []
+        }
+
+        const techNames = techs.map(t => (t && t.name) ? t.name : String(t))
+        console.log('👤 Danh sách tech:', techNames)
+
+        // 🔧 CẤU HÌNH ĐẾM
+        const COUNT_CONFIG = {
+            "stage-88602": techNames,
+            "stage-88608": techNames,
+            "stage-88609": techNames
+        }
+
+        async function countAllStages() {
+            const result = await webview.executeJavaScript(`
+    (() => {
+      const config = ${JSON.stringify(COUNT_CONFIG)}
+      const output = {}
+
+      for (const stageId in config) {
+        const stageEl = document.getElementById(stageId)
+        output[stageId] = {}
+
+        if (!stageEl) {
+          config[stageId].forEach(name => {
+            output[stageId][name] = 0
+          })
+          continue
+        }
+
+        const text = stageEl.innerText
+
+        config[stageId].forEach(name => {
+          output[stageId][name] =
+            text.split(name).length - 1
+        })
+      }
+
+      return output
+    })()
+  `)
+
+            console.log('📊 KẾT QUẢ (raw):', result)
+
+            // Chuyển sang cấu trúc mảng: [{ name: techName, 'stage-88602': n, 'stage-88608': n, 'stage-88609': n, score }, ...]
+            const stages = ["stage-88602", "stage-88608", "stage-88609"]
+
+            const transformedArray = techNames.map(name => {
+                const counts = stages.map(s => (result[s] && typeof result[s][name] === 'number') ? result[s][name] : 0)
+                // Score = stage-88602/3 + stage-88608/2 + stage-88609
+                const scoreRaw = (counts[0] / 3) + (counts[1] / 2) + counts[2]
+                const score = Math.round(scoreRaw * 100) / 100 // làm tròn 2 chữ số thập phân
+
+                return {
+                    name,
+                    "thietke": counts[0],
+                    "thicong": counts[1],
+                    "nt_xlsc": counts[2],
+                    score
+                }
+            })
+
+            console.log('📊 KẾT QUẢ (transformedArray - name-based):', transformedArray)
+
+            // gửi sang main.js để lưu JSON — gọi có điều kiện
+            if (window.electronAPI && typeof window.electronAPI.send === 'function') {
+                window.electronAPI.send('save-json', transformedArray)
+            } else {
+                console.warn('Không thể gửi kết quả về main process — electronAPI.send không tồn tại')
+            }
+
+            // trả về transformedArray để caller (main -> run-count-now) có thể await
+            return transformedArray
+        }
+
+        // nhận lệnh từ main process để chạy count ngay (fetch → count → post flow)
+        if (window.electronAPI && typeof window.electronAPI.on === 'function') {
+            window.electronAPI.on('run-count-now', async () => {
+                console.log('renderer: run-count-now received — running countAllStages')
+                try {
+                    await countAllStages()
+                } catch (err) {
+                    console.error('renderer: countAllStages failed after run-count-now', err)
+                }
+            })
+        }
+
+        webview.addEventListener('did-finish-load', () => {
+            // chờ SPA render
+            setTimeout(countAllStages, 3000)
+        })
+    })
+</script>
