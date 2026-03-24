@@ -1,0 +1,7 @@
+@Electron and PyInstaller Setup Guide
+npm install --save-dev electron
+npm start
+
+#Create a standalone executable for your Electron app using PyInstaller
+pip install pyinstaller
+pyinstaller --onefile --noconsole your_script.py
