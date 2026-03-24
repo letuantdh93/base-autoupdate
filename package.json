@@ -11,7 +11,7 @@
     "appId": "com.letuan.basecollector",
     "productName": "BaseCollector",
     "directories": {
-      "output": "dist"
+      "output": "distelectron"
     },
     "files": [
       "**/*"
